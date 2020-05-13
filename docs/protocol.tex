@@ -8,16 +8,16 @@
 
 \renewcommand{\arraystretch}{1.4}
 
-\title{Link Server Protocol}
-\author{DynamicSystems}
-\date{}
-
 \newcommand{\companyName}{DynamicSystems\texttrademark}
 \newcommand{\challengeHost}{studerfamily.us}
 \newcommand{\challengePort}{9876}
 
 \newcommand{\code}[1]{\texttt{#1}}
 \newcommand*\xor{\oplus}
+
+\title{Link Server Protocol}
+\author{\companyName{}}
+\date{}
 
 \begin{document}
 
@@ -67,13 +67,14 @@ If a number is not marked as secure, you can still send it securely, but it's ju
 
 \subsection{From the server}
 \subsubsection{Greeting - \code{0x01} - not secure}
-This message is automatically sent to the client when they first connect.
+This message is automatically sent when you first connect.
 The data will be a friendly greeting that should be displayed to the user.
+This may also be broadcast to all users if a company-wide announcement is made.
 
 \subsubsection{Protocol Error - \code{0x02} - not secure}
-This message is sent to the client to indicate that there was an protocol error, such as sending an invalid command number.
+This message is sent to indicate that there was an protocol error, such as sending an invalid command number.
 The data will be a human-readable string that describes the error. \\
-This message will \textbf{not} be sent for other types of errors.
+This will \textbf{not} be sent for other types of errors.
 For example, if you send a Request Flag (\code{0x84}) message without the appropriate authorization, you will get a Secure Response (\code{0x04}) with an error message.
 
 \subsubsection{Generic Response - \code{0x03} - not secure}
@@ -147,6 +148,7 @@ As long as you have the correct settings in the message details (as described in
 
 The following sections (2.3.3 and 2.3.4) describe additional details about the correct message settings. You should read them carefully before attempting to implement this encryption.
 
+\pagebreak
 \subsection{Working with data}
 In the previous section, you might have noticed that not everything in the XOR operation has the same length.
 The final key is 4 bytes long, but your data might be longer than 4 bytes. \\
@@ -198,5 +200,6 @@ We use the \emph{CRC-32} algorithm, which is commonly available as a built-in fu
 When encrypting a message, you should calculate the CRC-32 of its plaintext, and then set the security checksum field, as described in section 2.1.
 
 \chapter{Examples}
+TODO
 
 \end{document}
