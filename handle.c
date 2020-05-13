@@ -1,6 +1,6 @@
 #include "handle.h"
 
-#define FLAG_SIZE 20
+#define FLAG_SIZE 48
 #define MAX_DATA_SIZE 80
 #define TIMEOUT_SECONDS 10
 
