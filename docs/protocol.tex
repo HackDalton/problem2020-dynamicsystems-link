@@ -1,0 +1,202 @@
+\documentclass{report}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{textcomp}
+
+\renewcommand{\arraystretch}{1.4}
+
+\title{Link Server Protocol}
+\author{DynamicSystems}
+\date{}
+
+\newcommand{\companyName}{DynamicSystems\texttrademark}
+\newcommand{\challengeHost}{studerfamily.us}
+\newcommand{\challengePort}{9876}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand*\xor{\oplus}
+
+\begin{document}
+
+\maketitle
+
+\setcounter{tocdepth}{3}
+\tableofcontents
+\newpage
+
+\chapter{Connections}
+Connections are made over TCP, using port \textbf{\challengePort{}}.
+The production \companyName{} link server is available at the host \textbf{\challengeHost{}} using this port. \\
+
+Please note that there is a timeout of \textbf{10 seconds}. If you do not send any data for longer than the timeout, you will automatically be disconnected. \\
+
+The purpose of the \companyName{} link server is to provide our employees secure access to confidential information.
+We refer to this information as a \emph{flag}. The flag is for \companyName{} employees only. \\
+
+The rest of this document contains technical details.
+As a \companyName{} employee, you should use your link client and may ignore the rest of this document.
+Please remember that this document and your link client, like all \companyName{} information, is confidential and proprietary.
+
+\chapter{Protocol details}
+\section{Messages}
+Once you open a connection, you then exchange \emph{messages} with the server.
+Messages have the following structure. All sizes are measured in bytes. See chapter 3 for example messages.
+\begin{center}
+\begin{tabular}{ l c c m{10 cm} }
+	Name & Position & Size & Description \\
+	\hline
+	Header & 0 & 4 & This should always be set to the bytes 0x44, 0x4E, 0x53, 0x4D in that order. \\
+	Command number & 4 & 1 & The command number describes the type of message. See section 2.2 for more information. \\
+	Sequence number & 5 & 1 & The sequence number starts at 0 and counts up for every message. Once it reaches 255 (the maximum number for a byte), it rolls over to 0. The server and the client have separate sequence numbers. \\
+	Data length & 6 & 1 & The amount of data attached to the message. \\
+	Security flag & 7 & 1 & If this byte is 0, the message is not secure. If it's 1, the message is secure and you must follow the steps in section 2.3. Other values are invalid. \\
+	Security message key & 8 & 4 & Used as part of the security system. Stored in \emph{big endian}, also called \emph{network byte order}. See section 2.3. \\
+	Security checksum & 12 & 4 & Used as part of the security system. Stored in \emph{big endian}, also called \emph{network byte order}. See section 2.3. \\
+	Data & 16 & ? & Additional data for the message. This depends on the command you're using. This will have the length set in the data length field. The current link server has a maximum of 80 bytes of data in one message.
+\end{tabular}
+\end{center}
+
+\pagebreak
+\section{Command numbers}
+The \emph{command number} describes the type of message.
+Certain command numbers are marked as secure, and so must be protected with the security mechanism in section 2.3.
+If a number is not marked as secure, you can still send it securely, but it's just not a requirement.
+
+\subsection{From the server}
+\subsubsection{Greeting - \code{0x01} - not secure}
+This message is automatically sent to the client when they first connect.
+The data will be a friendly greeting that should be displayed to the user.
+
+\subsubsection{Protocol Error - \code{0x02} - not secure}
+This message is sent to the client to indicate that there was an protocol error, such as sending an invalid command number.
+The data will be a human-readable string that describes the error. \\
+This message will \textbf{not} be sent for other types of errors.
+For example, if you send a Request Flag (\code{0x84}) message without the appropriate authorization, you will get a Secure Response (\code{0x04}) with an error message.
+
+\subsubsection{Generic Response - \code{0x03} - not secure}
+This is used as a response to the Get Time (\code{0x81}) message.
+The data will be a human-readable string that responds to whatever command was issued. You should display this string to the user.
+
+\subsubsection{Secure Response - \code{0x04} - secure}
+This is equivalent to the Generic Response (\code{0x03}) message, but sent using the security mechanism described in Section 2.3.
+It's used as a response to the Ping (\code{0x83}), and Request Flag (\code{0x84}) messages.
+
+\subsubsection{Timeout - \code{0x05} - not secure}
+This message will be sent if you are automatically disconnected due to inactivity. The data will be a string that you can display to the user.
+
+\subsection{From the client}
+\subsubsection{Get Time - \code{0x81} - not secure}
+This message will ask the \companyName{} server for the current time.
+You can use it to make sure the connection is working before beginning the security mechanism, since all other messages require a secure connection.
+The time is returned in the UTC timezone.
+
+\subsubsection{Start Security - \code{0x82} - not secure}
+This message is sent by the client to begin the security mechanism. See section 2.3.
+
+\subsubsection{Ping - \code{0x83} - secure}
+A ping message, used to test the security system.
+You may provide data along with your message, and it will be echoed back to you by the server.
+Make sure that your data is as long as the data length you specify in the message!
+Also, make sure to abide by the maximum data length, as specified in section 2.1.
+
+\subsubsection{Request Flag - \code{0x84} - secure}
+This is the heart of the \companyName{} link server.
+It may only be called by authorized users.
+If you are authorized, this message will result in a Secure Response (\code{0x04}) containing the flag.
+
+\section{Security}
+\subsection{Introduction}
+The \companyName{} link server sometimes deals with highly sensitive data.
+In order to protect \companyName{} and its valuable intellectual property, certain messages must be sent in a secure manner.
+When a message is sent securely, only its data is encrypted. The other parts of the message (as described in section 2.1) remain unencrypted. \\
+
+The core of the security system is an advanced mathematical operation referred to as "exclusive OR", or \emph{XOR} for short.
+Cryptographers have proven XOR to be completely impossible to break under any circumstances.
+This operation is the fundamental building block used by the \companyName{} Security System, and it's why we're so confident in calling it an \emph{unhackable} system. \\
+
+Description of the XOR operation is outside of the scope of this document; however, you may find many online resources available, such as \url{https://en.wikipedia.org/wiki/Exclusive_or}. \\
+
+This document uses the $\xor$ symbol to denote the XOR operation. For example, $A \xor B$ is the notation for $A$ XOR $B$.
+
+\subsection{Operation}
+To begin a secure connection, send a Start Security (\code{0x82}) command.
+The server will respond with two Generic Response (\code{0x03}) messages. The first will contain a useful security tip, which you should display for the user. The second will contain the \emph{connection key}, described below.
+Once you've done that, you can start sending \emph{secure messages}. \\
+
+A secure message is the same as a regular message, but the security flag field should be set to 1.
+You'll also need to set a \emph{security message key}. This can be anything you want, and should be different between messages.
+This key gets combined with the connection key to generate a \emph{final key}. Specifically, the mathematical formula used is as follows:
+\begin{equation*}
+	\text{final key} = \text{connection key} + \text{security message key}
+\end{equation*}
+
+\subsubsection{Encryption and decryption}
+The XOR operation is easy to reverse. If you've done $A \xor B = C$, then $C \xor B = A$.
+By using this principle, encryption and decryption of data is actually the same operation!
+\begin{equation*}
+	\text{output} = \text{input} \xor \text{final key}
+\end{equation*}
+For encryption, the input would be the \emph{plaintext} (the data you wish to encrypt) and the output would be the \emph{ciphertext} (the encrypted data).
+For decryption, you would swap them, so the input is the ciphertext and the output is the plaintext. \\
+
+For secure messages, you should send the ciphertext as the data for the message.
+As long as you have the correct settings in the message details (as described in section 2.1), the server will automatically decrypt your data. \\
+
+The following sections (2.3.3 and 2.3.4) describe additional details about the correct message settings. You should read them carefully before attempting to implement this encryption.
+
+\subsection{Working with data}
+In the previous section, you might have noticed that not everything in the XOR operation has the same length.
+The final key is 4 bytes long, but your data might be longer than 4 bytes. \\
+
+To work around this, you should repeat the key over and over. This is best explained with an example.
+Let's say you're encrypting some data, and that you've already determined the final key. \\
+
+$plaintext = \begin{bmatrix}
+	\code{0x53}, \code{0x65}, \code{0x63}, \code{0x72}, \code{0x65}, \code{0x74}, \code{0x20}, \code{0x79}, \code{0x61}, \code{0x79}
+\end{bmatrix}$ and $key = \begin{bmatrix}
+	\code{0x12}, \code{0x34}, \code{0x56}, \code{0x78}
+\end{bmatrix}$ \\
+
+From before, we know that we must perform a XOR operation between the two. At a byte level, that would look like:
+\begin{equation*}
+\begin{split}
+	plaintext[0] \xor key[0] &= ciphertext[0] \\
+	plaintext[1] \xor key[1] &= ciphertext[1] \\
+	plaintext[2] \xor key[2] &= ciphertext[2] \\
+	plaintext[3] \xor key[3] &= ciphertext[3] \\
+	plaintext[4] \xor key[0] &= ciphertext[4] \\
+	plaintext[5] \xor key[1] &= ciphertext[5] \\
+	plaintext[6] \xor key[2] &= ciphertext[6] \\
+	plaintext[7] \xor key[3] &= ciphertext[7] \\
+	plaintext[8] \xor key[0] &= ciphertext[8] \\
+	plaintext[9] \xor key[1] &= ciphertext[9]
+\end{split}
+\end{equation*}
+Filling in the actual values, you get:
+\begin{equation*}
+\begin{split}
+	\code{0x53} \xor \code{0x12} &= \code{0x41} \\
+	\code{0x65} \xor \code{0x34} &= \code{0x51} \\
+	\code{0x63} \xor \code{0x56} &= \code{0x35} \\
+	\code{0x72} \xor \code{0x78} &= \code{0x0a} \\
+	\code{0x65} \xor \code{0x12} &= \code{0x77} \\
+	\code{0x74} \xor \code{0x34} &= \code{0x40} \\
+	\code{0x20} \xor \code{0x56} &= \code{0x76} \\
+	\code{0x79} \xor \code{0x78} &= \code{0x01} \\
+	\code{0x61} \xor \code{0x12} &= \code{0x73} \\
+	\code{0x79} \xor \code{0x34} &= \code{0x4d}
+\end{split}
+\end{equation*}
+Notice how the key repeats itself.
+
+\subsection{Checksum}
+So that the server can verify that it decrypted a message correctly, you must calculate a \emph{checksum} of your plaintext.
+We use the \emph{CRC-32} algorithm, which is commonly available as a built-in function of many programming languages.
+When encrypting a message, you should calculate the CRC-32 of its plaintext, and then set the security checksum field, as described in section 2.1.
+
+\chapter{Examples}
+
+\end{document}
