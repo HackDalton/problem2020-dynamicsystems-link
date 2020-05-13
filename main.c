@@ -43,6 +43,12 @@ int main() {
 	server_address.sin_addr.s_addr = htonl(INADDR_ANY);
 	server_address.sin_port = htons(PORT);
 
+	// set SO_REUSEADDR
+	uint32_t yes = 1;
+	if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(uint32_t)) == -1) {
+		return crash_error("Setting socket option failed!");
+	}
+
 	// bind to the socket
 	err = bind(server_socket_fd, (struct sockaddr *) &server_address, sizeof(server_address));
 	if (err == -1) {
