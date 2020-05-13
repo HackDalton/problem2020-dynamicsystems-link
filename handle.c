@@ -32,7 +32,7 @@ typedef struct __attribute__((packed)) {
 	uint8_t data_length;
 	uint8_t security_flag;
 	uint32_t security_message_key;
-	uint32_t security_checksum;
+	uint8_t security_checksum[4];
 } message_t;
 
 // variables for connection
@@ -44,7 +44,7 @@ uint8_t data[MAX_DATA_SIZE];
 int server_sequence_number;
 int client_sequence_number;
 bool security_enabled;
-uint8_t secret_key[4];
+uint8_t connection_key[4];
 
 char flag[FLAG_SIZE + 1];
 
@@ -55,10 +55,64 @@ int client_error(char * message) {
 	return 1;
 }
 
+int read_bytes(int socket_fd, size_t n, void * buffer) {
+	int read_so_far = 0;
+    while (read_so_far < n) {
+        int result = read(socket_fd, buffer + read_so_far, n - read_so_far);
+        if (result < 1) {
+            return -1;
+        }
+
+        read_so_far += result;
+    }
+}
+
+void random_bytes(uint8_t * buffer) {
+	int fd = open("/dev/urandom", O_RDONLY);
+	if (fd < 0) {
+		client_error("Couldn't open random bytes!");
+		return;
+	}
+
+	int err = read_bytes(fd, 4, buffer);
+	if (err < 0) {
+		client_error("Couldn't read random bytes!");
+		return;
+	}
+
+	close(fd);
+}
+
+void security_operation(message_t * message) {
+	uint8_t final_key[4];
+	for (size_t i = 0; i < 4; i++) {
+		final_key[i] = connection_key[i] + ((uint8_t *) &message->security_message_key)[i];
+	}
+
+	for (size_t i = 0; i < MAX_DATA_SIZE; i++) {
+		data[i] = data[i] ^ final_key[i % 4];
+	}
+}
+
 int write_message(int socket_fd, message_t * message, uint8_t * data) {
 	// update the sequence number
 	message->sequence_number = server_sequence_number;
 	server_sequence_number++;
+
+	if (message->security_flag) {
+		// get the checksum of the plaintext
+		uint32_t checksum = crc32(0, data, message->data_length);
+		uint8_t * checksum_array = (uint8_t *) &checksum;
+		for (size_t i = 0; i < 4; i++) {
+			message->security_checksum[i] = checksum_array[i];
+		}
+
+		// generate message key
+		random_bytes((uint8_t *) &message->security_message_key);
+
+		// update security info
+		security_operation(message);
+	}
 
 	// first write the message info
 	int n = write(socket_fd, message, sizeof(message_t));
@@ -75,27 +129,13 @@ int write_message(int socket_fd, message_t * message, uint8_t * data) {
 	return 0;
 }
 
-int read_bytes(int socket_fd, size_t n, void * buffer) {
-	int read_so_far = 0;
-    while (read_so_far < n) {
-        int result = read(socket_fd, buffer + read_so_far, n - read_so_far);
-        if (result < 1) {
-            return -1;
-        }
-
-        read_so_far += result;
-    }
-}
-
 void send_timeout(int socket_fd) {
 	message_t timeout = {
 		.header = COMMAND_HEADER,
 		.command_number = COMMAND_SERVER_TIMEOUT,
 		.sequence_number = 0,
 		.data_length = sizeof(TIMEOUT)/sizeof(char),
-		.security_flag = 0,
-		.security_message_key = 0,
-		.security_checksum = 0
+		.security_flag = 0
 	};
 	write_message(socket_fd, &timeout, TIMEOUT);
 }
@@ -106,9 +146,7 @@ int send_message_with_string(int socket_fd, int command_number, char * message) 
 		.command_number = command_number,
 		.sequence_number = 0,
 		.data_length = strlen(message) + 1,
-		.security_flag = 0,
-		.security_message_key = 0,
-		.security_checksum = 0
+		.security_flag = 0
 	};
 	return write_message(socket_fd, &protocol_error, message);
 }
@@ -122,9 +160,7 @@ int send_response(int socket_fd, char * text) {
 		.header = COMMAND_HEADER,
 		.command_number = COMMAND_SERVER_GENERIC_RESPONSE,
 		.data_length = strlen(text) + 1,
-		.security_flag = 0,
-		.security_message_key = 0,
-		.security_checksum = 0
+		.security_flag = 0
 	};
 
 	// was our current message sent securely?
@@ -145,19 +181,9 @@ int handle_connection(int socket_fd, bool is_authorized) {
 	client_sequence_number = 0;
 	security_enabled = false;
 
-	// generate a secret key
+	// generate a connection key
 	// randomize it for EXTRA SECURITY
-	int fd = open("/dev/urandom", O_RDONLY);
-	if (fd < 0) {
-		return client_error("Couldn't open random bytes!");
-	}
-
-	int err = read_bytes(fd, 4, &secret_key);
-	if (err < 0) {
-		return client_error("Couldn't read random bytes!");
-	}
-
-	close(fd);
+	random_bytes(connection_key);
 
 	// set a read timeout
 	// struct timeval timeout;
@@ -180,11 +206,9 @@ int handle_connection(int socket_fd, bool is_authorized) {
 		.command_number = COMMAND_SERVER_GREETING,
 		.sequence_number = 0,
 		.data_length = sizeof(GREETING)/sizeof(char),
-		.security_flag = 0,
-		.security_message_key = 0,
-		.security_checksum = 0
+		.security_flag = 0
 	};
-	err = write_message(socket_fd, &greeting, GREETING);
+	int err = write_message(socket_fd, &greeting, GREETING);
 	if (err < 0) {
 		return client_error("Could not write to socket!");
 	}
@@ -266,14 +290,18 @@ int handle_connection(int socket_fd, bool is_authorized) {
 		}
 
 		// decrypt it if needed
-		if (message.security_flag == 1) {
-			uint8_t final_key[4];
-			for (size_t i = 0; i < 4; i++) {
-				final_key[i] = secret_key[i] + ((uint8_t *) &message.security_message_key)[i];
-			}
+		if (message.security_flag == 1 && data_to_read != 0) {
+			security_operation(&message);
 
-			for (size_t i = 0; i < MAX_DATA_SIZE; i++) {
-				data[i] = data[i] ^ final_key[i % 4];
+			// verify checksum
+			uint32_t checksum = crc32(0, data, data_to_read);
+			for (size_t i = 0; i < 4; i++) {
+				uint8_t checksum_byte = (checksum >> ((3 - i) * 8)) & 0xFF;
+				if (message.security_checksum[i] != checksum_byte) {
+					send_protocol_error(socket_fd, "Incorrect security checksum.");
+					close(socket_fd);
+					return 0;
+				}
 			}
 		}
 
@@ -292,9 +320,33 @@ int handle_connection(int socket_fd, bool is_authorized) {
 			}
 
 			send_response(socket_fd, SECURITY_TIP);
+
+			message_t key_info = {
+				.header = COMMAND_HEADER,
+				.command_number = COMMAND_SERVER_GENERIC_RESPONSE,
+				.data_length = 4,
+				.security_flag = 0
+			};
+			write_message(socket_fd, &key_info, (uint8_t *) &connection_key);
+
 			security_enabled = true;
 		} else if (message.command_number == COMMAND_CLIENT_PING) {
 			// ping
+			if (message.data_length == 0) {
+				send_protocol_error(socket_fd, "You must send data to ping.");
+				close(socket_fd);
+				return 0;
+			}
+
+			message_t ping_response = {
+				.header = COMMAND_HEADER,
+				.command_number = COMMAND_SERVER_SECURE_RESPONSE,
+				.data_length = message.data_length,
+				.security_flag = 1,
+				.security_message_key = 0,
+				.security_checksum = 0
+			};
+			write_message(socket_fd, &ping_response, data);
 		} else if (message.command_number == COMMAND_CLIENT_REQUEST_FLAG) {
 			// are they authorized?
 			if (is_authorized) {

@@ -13,6 +13,8 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 
+#include "util.h"
+
 int handle_connection(int socket_fd, bool is_authorized);
 
 #endif
