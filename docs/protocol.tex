@@ -131,7 +131,27 @@ A secure message is the same as a regular message, but the security flag field s
 You'll also need to set a \emph{security message key}. This can be anything you want, and should be different between messages.
 This key gets combined with the connection key to generate a \emph{final key}. Specifically, the mathematical formula used is as follows:
 \begin{equation*}
-	\text{final key} = \text{connection key} + \text{security message key}
+	\text{connection key} + \text{security message key} = \text{final key}
+\end{equation*}
+You should treat all of the keys as arrays of individual bytes. This means that values might overflow.
+An example of how this might look is as follows:
+\begin{equation*}
+	\begin{bmatrix}
+		\code{0x2E},
+		\code{0x8A},
+		\code{0xDA},
+		\code{0xFF}
+	\end{bmatrix} + \begin{bmatrix}
+		\code{0x35},
+		\code{0xC1},
+		\code{0x47},
+		\code{0x73}
+	\end{bmatrix} = \begin{bmatrix}
+		\code{0x63},
+		\code{0x4B},
+		\code{0x21},
+		\code{0x72}
+	\end{bmatrix}
 \end{equation*}
 
 \subsubsection{Encryption and decryption}
