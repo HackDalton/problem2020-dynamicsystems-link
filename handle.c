@@ -94,7 +94,7 @@ void security_operation(message_t * message) {
 	}
 }
 
-int write_message(int socket_fd, message_t * message, uint8_t * data) {
+int write_message(int socket_fd, message_t * message) {
 	// update the sequence number
 	message->sequence_number = server_sequence_number;
 	server_sequence_number++;
@@ -129,17 +129,6 @@ int write_message(int socket_fd, message_t * message, uint8_t * data) {
 	return 0;
 }
 
-void send_timeout(int socket_fd) {
-	message_t timeout = {
-		.header = COMMAND_HEADER,
-		.command_number = COMMAND_SERVER_TIMEOUT,
-		.sequence_number = 0,
-		.data_length = sizeof(TIMEOUT)/sizeof(char),
-		.security_flag = 0
-	};
-	write_message(socket_fd, &timeout, TIMEOUT);
-}
-
 int send_message_with_string(int socket_fd, int command_number, char * message) {
 	message_t protocol_error = {
 		.header = COMMAND_HEADER,
@@ -148,7 +137,15 @@ int send_message_with_string(int socket_fd, int command_number, char * message) 
 		.data_length = strlen(message) + 1,
 		.security_flag = 0
 	};
-	return write_message(socket_fd, &protocol_error, message);
+
+	// copy the text into our buffer
+	strncpy(data, message, MAX_DATA_SIZE);
+
+	return write_message(socket_fd, &protocol_error);
+}
+
+void send_timeout(int socket_fd) {
+	send_message_with_string(socket_fd, COMMAND_SERVER_TIMEOUT, TIMEOUT);
 }
 
 void send_protocol_error(int socket_fd, const char * message) {
@@ -170,7 +167,10 @@ int send_response(int socket_fd, char * text) {
 		response.security_flag = 1;
 	}
 
-	return write_message(socket_fd, &response, text);
+	// copy the text into our buffer
+	strncpy(data, text, MAX_DATA_SIZE);
+
+	return write_message(socket_fd, &response);
 }
 
 int handle_connection(int socket_fd, bool is_authorized) {
@@ -201,14 +201,7 @@ int handle_connection(int socket_fd, bool is_authorized) {
 	fclose(flag_fd);
 
 	// say hello
-	message_t greeting = {
-		.header = COMMAND_HEADER,
-		.command_number = COMMAND_SERVER_GREETING,
-		.sequence_number = 0,
-		.data_length = sizeof(GREETING)/sizeof(char),
-		.security_flag = 0
-	};
-	int err = write_message(socket_fd, &greeting, GREETING);
+	int err = send_message_with_string(socket_fd, COMMAND_SERVER_GREETING, GREETING);
 	if (err < 0) {
 		return client_error("Could not write to socket!");
 	}
@@ -327,7 +320,8 @@ int handle_connection(int socket_fd, bool is_authorized) {
 				.data_length = 4,
 				.security_flag = 0
 			};
-			write_message(socket_fd, &key_info, (uint8_t *) &connection_key);
+			memcpy(data, (uint8_t *) &connection_key, 4);
+			write_message(socket_fd, &key_info);
 
 			security_enabled = true;
 		} else if (message.command_number == COMMAND_CLIENT_PING) {
@@ -346,7 +340,7 @@ int handle_connection(int socket_fd, bool is_authorized) {
 				.security_message_key = 0,
 				.security_checksum = 0
 			};
-			write_message(socket_fd, &ping_response, data);
+			write_message(socket_fd, &ping_response);
 		} else if (message.command_number == COMMAND_CLIENT_REQUEST_FLAG) {
 			// are they authorized?
 			if (is_authorized) {
