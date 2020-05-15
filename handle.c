@@ -57,14 +57,14 @@ int client_error(char * message) {
 
 int read_bytes(int socket_fd, size_t n, void * buffer) {
 	int read_so_far = 0;
-    while (read_so_far < n) {
-        int result = read(socket_fd, buffer + read_so_far, n - read_so_far);
-        if (result < 1) {
-            return -1;
-        }
+	while (read_so_far < n) {
+		int result = read(socket_fd, buffer + read_so_far, n - read_so_far);
+		if (result < 1) {
+			return -1;
+		}
 
-        read_so_far += result;
-    }
+		read_so_far += result;
+	}
 }
 
 void random_bytes(uint8_t * buffer) {
