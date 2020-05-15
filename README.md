@@ -1,4 +1,7 @@
-## Description
+# HackDalton: DynamicSystems Link
+This problem was written by [Alex Studer](https://alex.studer.dev), a guest problem writer.
+
+## Problem:
 You've been trying to get into the servers of _DynamicSystems_, a company that...well, no one really seems to know what they do.
 
 You've discovered that their employees connect to a _link server_ and download some secret information from there, which DynamicSystems refers to as a "flag".
