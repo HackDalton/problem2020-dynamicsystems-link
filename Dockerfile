@@ -10,5 +10,6 @@ RUN ./build.sh
 FROM alpine
 
 COPY --from=build /src/dslserver ./
+COPY ./flag.txt ./
 
 CMD ["./dslserver"]
