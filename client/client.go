@@ -11,8 +11,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 )
 
-const HOST = "studerfamily.us"
-const PORT = 9876
+const HOST = "problems.hackdalton.com"
+const PORT = 24992
 
 const messageSize = 16
 
