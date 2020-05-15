@@ -83,7 +83,7 @@ The data will be a human-readable string that responds to whatever command was i
 
 \subsubsection{Secure Response - \code{0x04} - secure}
 This is equivalent to the Generic Response (\code{0x03}) message, but sent using the security mechanism described in Section 2.3.
-It's used as a response to the Ping (\code{0x83}), and Request Flag (\code{0x84}) messages.
+It's used as a response to the Ping (\code{0x83}) and Request Flag (\code{0x84}) messages.
 
 \subsubsection{Timeout - \code{0x05} - not secure}
 This message will be sent if you are automatically disconnected due to inactivity. The data will be a string that you can display to the user.
@@ -99,7 +99,7 @@ This message is sent by the client to begin the security mechanism. See section 
 
 \subsubsection{Ping - \code{0x83} - secure}
 A ping message, used to test the security system.
-You may provide data along with your message, and it will be echoed back to you by the server.
+You may provide data along with your message, and it will be echoed back to you by the server as a Secure Response (\code{0x04}).
 Make sure that your data is as long as the data length you specify in the message!
 Also, make sure to abide by the maximum data length, as specified in section 2.1.
 
@@ -217,6 +217,7 @@ Notice how the key repeats itself.
 \subsection{Checksum}
 So that the server can verify that it decrypted a message correctly, you must calculate a \emph{checksum} of your plaintext.
 We use the \emph{CRC-32} algorithm, which is commonly available as a built-in function of many programming languages.
+You'll want to use the \emph{IEEE polynomial}, which is most likely the default.
 When encrypting a message, you should calculate the CRC-32 of its plaintext, and then set the security checksum field, as described in section 2.1.
 
 \chapter{Examples}
