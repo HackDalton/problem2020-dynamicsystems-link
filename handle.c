@@ -152,6 +152,19 @@ void send_protocol_error(int socket_fd, const char * message) {
 	send_message_with_string(socket_fd, COMMAND_SERVER_PROTOCOL_ERROR, (char *) message);
 }
 
+void close_connection(int socket_fd) {
+	shutdown(socket_fd, SHUT_WR);
+	ssize_t bytes_read;
+	while ((bytes_read = read(socket_fd, data, MAX_DATA_SIZE)) != 0) {
+		if (bytes_read < 0) {
+			if (errno != EINTR) {
+				break;
+			}
+		}
+	}
+	close(socket_fd);
+}
+
 int send_response(int socket_fd, char * text) {
 	message_t response = {
 		.header = COMMAND_HEADER,
@@ -180,6 +193,20 @@ int handle_connection(int socket_fd, bool is_authorized) {
 	server_sequence_number = 0;
 	client_sequence_number = 0;
 	security_enabled = false;
+
+	// set SO_LINGER
+	struct linger so_linger;
+	so_linger.l_linger = 5;
+	so_linger.l_onoff = 1;
+	if (setsockopt(socket_fd, SOL_SOCKET, SO_LINGER, &so_linger, sizeof(so_linger)) == -1) {
+		return client_error("Setting socket option failed!");
+	}
+
+	// set TCP_NODELAY
+	uint32_t yes = 1;
+	if (setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(uint32_t)) == -1) {
+		return client_error("Setting socket option failed!");
+	}
 
 	// generate a connection key
 	// randomize it for EXTRA SECURITY
@@ -213,7 +240,7 @@ int handle_connection(int socket_fd, bool is_authorized) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				// we timed out, complain and shut down the connection
 				send_timeout(socket_fd);
-				close(socket_fd);
+				close_connection(socket_fd);
 			}
 
 			return 0;
@@ -232,7 +259,7 @@ int handle_connection(int socket_fd, bool is_authorized) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				// we timed out, complain and shut down the connection
 				send_timeout(socket_fd);
-				close(socket_fd);
+				close_connection(socket_fd);
 			}
 
 			return 0;
@@ -247,14 +274,14 @@ int handle_connection(int socket_fd, bool is_authorized) {
 			message.header[3] != correct_header[3]
 		) {
 			send_protocol_error(socket_fd, "Invalid header.");
-			close(socket_fd);
+			close_connection(socket_fd);
 			return 0;
 		}
 
 		// verify the sequence number
 		if (message.sequence_number != client_sequence_number) {
 			send_protocol_error(socket_fd, "Incorrect sequence number.");
-			close(socket_fd);
+			close_connection(socket_fd);
 			return 0;
 		}
 		client_sequence_number++;
@@ -262,14 +289,14 @@ int handle_connection(int socket_fd, bool is_authorized) {
 		// verify the security flag is something sane
 		if (message.security_flag != 0 && message.security_flag != 1) {
 			send_protocol_error(socket_fd, "Invalid security flag.");
-			close(socket_fd);
+			close_connection(socket_fd);
 			return 0;
 		}
 
 		// verify that security is enabled if we're using it
 		if (!security_enabled && message.security_flag != 0) {
 			send_protocol_error(socket_fd, "You must enable security for this connection first.");
-			close(socket_fd);
+			close_connection(socket_fd);
 			return 0;
 		}
 
@@ -277,7 +304,7 @@ int handle_connection(int socket_fd, bool is_authorized) {
 		if (message.command_number == COMMAND_CLIENT_PING || message.command_number == COMMAND_CLIENT_REQUEST_FLAG) {
 			if (message.security_flag != 1) {
 				send_protocol_error(socket_fd, "That command requires a secure connection.");
-				close(socket_fd);
+				close_connection(socket_fd);
 				return 0;
 			}
 		}
@@ -292,7 +319,7 @@ int handle_connection(int socket_fd, bool is_authorized) {
 				uint8_t checksum_byte = (checksum >> ((3 - i) * 8)) & 0xFF;
 				if (message.security_checksum[i] != checksum_byte) {
 					send_protocol_error(socket_fd, "Incorrect security checksum.");
-					close(socket_fd);
+					close_connection(socket_fd);
 					return 0;
 				}
 			}
@@ -308,7 +335,7 @@ int handle_connection(int socket_fd, bool is_authorized) {
 			// start security
 			if (security_enabled) {
 				send_protocol_error(socket_fd, "Security is already enabled on this connection.");
-				close(socket_fd);
+				close_connection(socket_fd);
 				return 0;
 			}
 
@@ -328,7 +355,7 @@ int handle_connection(int socket_fd, bool is_authorized) {
 			// ping
 			if (message.data_length == 0) {
 				send_protocol_error(socket_fd, "You must send data to ping.");
-				close(socket_fd);
+				close_connection(socket_fd);
 				return 0;
 			}
 
@@ -352,11 +379,11 @@ int handle_connection(int socket_fd, bool is_authorized) {
 			}
 		} else {
 			send_protocol_error(socket_fd, "Unknown command number.");
-			close(socket_fd);
+			close_connection(socket_fd);
 			return 0;
 		}
 	}
 
-	close(socket_fd);
+	close_connection(socket_fd);
 	return 0;
 }
