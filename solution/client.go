@@ -201,6 +201,8 @@ func main() {
 	msg, data, err = readMessage(conn)
 	check(err)
 
+	spew.Dump(data)
+
 	// get the extra data
 	bledData := data[80:]
 
