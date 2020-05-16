@@ -165,6 +165,7 @@ void close_connection(int socket_fd) {
 		}
 	}
 	close(socket_fd);
+	exit(0);
 }
 
 int send_response(int socket_fd, char * text) {
@@ -215,10 +216,10 @@ int handle_connection(int socket_fd, bool is_authorized) {
 	random_bytes(connection.connection_key);
 
 	// set a read timeout
-	// struct timeval timeout;
-	// timeout.tv_sec = TIMEOUT_SECONDS;
-	// timeout.tv_usec = 0;
-	// setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+	struct timeval timeout;
+	timeout.tv_sec = TIMEOUT_SECONDS;
+	timeout.tv_usec = 0;
+	setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 
 	// read the flag file
 	FILE * flag_fd = fopen("flag.txt", "r");
