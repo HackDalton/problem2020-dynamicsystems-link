@@ -7,7 +7,7 @@ The first part of this problem is implementing a client for the link server prot
 
 Once you have a working client, it's time to look into the actual bug. The last part of the description seems to hint at something: _Don't forget the official motto of DynamicSystems: "Since 2014: Our hearts bleed for our clients!"_. Some research leads you to [the Heartbleed bug](https://en.wikipedia.org/wiki/Heartbleed), which was a vulnerability in the OpenSSL library. It's probably best summarized in [this image](https://en.wikipedia.org/wiki/File:Simplified_Heartbleed_explanation.svg). 
 
-Looking at the protocol documentation, one thing that seems suspicious is the Ping (`0x83`) command, which has a description helpfully letting us know to "Make sure that your data is as long as the data length you specify in the message! Also, make sure to abide by the maximum data length, as specified in section 2.1.". Looking at section 2.1, we see the maximum data length is 80 bytes.
+Looking at the protocol documentation with this in mind, one thing that seems suspicious is the Ping (`0x83`) command, which has a description helpfully letting us know to "Make sure that your data is as long as the data length you specify in the message! Also, make sure to abide by the maximum data length, as specified in section 2.1.". Looking at section 2.1, we see the maximum data length is 80 bytes.
 
 So, what happens if we send a Ping (`0x83`) with 80 bytes of data, but adjust the message header to have a data length of 255 bytes (the maximum value of an unsigned 8-bit integer)? Well, you get back 255 bytes of data:
 ```
@@ -54,10 +54,13 @@ The first 80 bytes are what we sent as the data for our initial Ping (`0x83`), b
 }
 ```
 
-And our flag is there. But what just happened? Taking a look at the source code of the server, we can get a better understanding of why this worked.
+And our flag is there.
+
+## What just happened?
+Taking a look at the source code of the server, we can get a better understanding of why this worked.
 
 At the top of `handle.c`, we can see the variables associated with a connection:
-```
+```c
 typedef struct {
 	message_t message;
 	uint8_t data[MAX_DATA_SIZE];
@@ -73,3 +76,103 @@ typedef struct {
 connection_variables_t connection;
 ```
 (and, earlier in the file, `MAX_DATA_SIZE` is defined to be 80)
+
+Going down to the part of the code that reads messages, we see:
+```c
+// we got a message, but how much data does it have?
+size_t data_to_read = connection.message.data_length;
+if (data_to_read > MAX_DATA_SIZE) {
+	// protection against buffer overflows
+	data_to_read = MAX_DATA_SIZE;
+}
+
+// read the data
+err = read_bytes(socket_fd, data_to_read, &connection.data);
+if (err < 0) {
+	if (errno == EAGAIN || errno == EWOULDBLOCK) {
+		// we timed out, complain and shut down the connection
+		send_timeout(socket_fd);
+		close_connection(socket_fd);
+	}
+
+	return 0;
+}
+```
+
+This code checks the data length provided by the user, and makes sure it's not larger than `MAX_DATA_SIZE`. This prevents a buffer overflow, since if you remember earlier, our data buffer is only set to `MAX_DATA_SIZE`. It then proceeds to read that many bytes from the connection. So in the case of our weird Ping (`0x83`) message from before, it would only read 80 bytes, even though we had a data length of 255.
+
+However, if we go down to the part of the code that handles pings:
+```c
+} else if (connection.message.command_number == COMMAND_CLIENT_PING) {
+	// ping
+	if (connection.message.data_length == 0) {
+		send_protocol_error(socket_fd, "You must send data to ping.");
+		close_connection(socket_fd);
+		return 0;
+	}
+
+	message_t ping_response = {
+		.header = COMMAND_HEADER,
+		.command_number = COMMAND_SERVER_SECURE_RESPONSE,
+		.data_length = connection.message.data_length,
+		.security_flag = 1,
+		.security_message_key = 0,
+		.security_checksum = 0
+	};
+	write_message(socket_fd, &ping_response);
+}
+```
+
+This code creates a `message_t` with a `data_length` of `connection.message.data_length`. This is the user-controlled number from the message, not our `data_to_read` variable from the bounds check! `write_message` uses this `data_length` field to know how much to read from the data buffer and send to the client, and when it's given a length of 255, it reads right past the end of the data buffer, sending out the rest of our `connection_variables_t` struct, including the `flag` buffer.
+
+If you look closely at the output from before, you can actually read off the rest of the connection variables! `server_sequence_number` was `0x05`, `client_sequence_number` was `0x03`, `security_enabled` was `0x01`, and `connection_key` was `0x35 0x0d 0xad 0xf4`.
+
+## Why did we look at the unencrypted data?
+The first 80 bytes of our Ping (`0x83`) came back encrypted (and so our code decrypted them fine), but the extra variables (the ones past our data buffer) were sent unencrypted. Why is that?
+
+Looking at `write_message`, we can see the part of the code that handles sending secure messages:
+```c
+if (message->security_flag) {
+	// get the checksum of the plaintext
+	uint32_t checksum = crc32(0, connection.data, message->data_length);
+	uint8_t * checksum_array = (uint8_t *) &checksum;
+	for (size_t i = 0; i < 4; i++) {
+		message->security_checksum[i] = checksum_array[i];
+	}
+
+	// generate message key
+	random_bytes((uint8_t *) &message->security_message_key);
+
+	// encrypt the message
+	security_operation(message);
+}
+```
+
+And if we look at `security_operation`:
+
+```c
+void security_operation(message_t * message) {
+	uint8_t final_key[4];
+	for (size_t i = 0; i < 4; i++) {
+		final_key[i] = connection.connection_key[i] + ((uint8_t *) &message->security_message_key)[i];
+	}
+
+	for (size_t i = 0; i < MAX_DATA_SIZE; i++) {
+		connection.data[i] = connection.data[i] ^ final_key[i % 4];
+	}
+}
+```
+
+We can see that the way this function works is by doing the XOR in-place, modifying the contents of the data buffer. Of course, it only does this on the data _in_ the data buffer, which is just the 80 bytes (`MAX_DATA_SIZE`) we sent in our ping. This makes sense&mdash;if we were doing this XOR on everything in `connection_variables_t`, we'd be corrupting those variables and confusing the rest of the code!
+
+However, in the `write_message`, we can see that, after running `security_operation`, we're just dumping out the contents of `data` to the client.
+
+```c
+// now write the data
+n = write(socket_fd, connection.data, message->data_length);
+if (n < 0) {
+	return n;
+}
+```
+
+The `write` function doesn't know anything about encryption or secure messages&mdash;when we give it a `message->data_length` that's greater than `MAX_DATA_SIZE`, it'll just write whatever comes next, as-is. That's why we have to look at the raw data of the message to see the flag. Or, since XOR is reversible, we can just repeat the XOR on the decrypted data to get back the encrypted data, which is what the solution code does.
