@@ -112,7 +112,7 @@ int write_message(int socket_fd, message_t * message) {
 		// generate message key
 		random_bytes((uint8_t *) &message->security_message_key);
 
-		// update security info
+		// encrypt the message
 		security_operation(message);
 	}
 
