@@ -6,6 +6,8 @@
 #include <netdb.h>
 #include <netinet/in.h>
 
+#include <signal.h>
+
 #include <sys/socket.h>
 
 #include "handle.h"
@@ -30,6 +32,10 @@ int main() {
 	int err;
 
 	printf("DynamicSystems" TRADEMARK_SYMBOL " link server\n");
+
+	// tell the kernel to clean up after our children
+	// we don't care about their exit statuses
+	signal(SIGCHLD, SIG_IGN);
 
 	// open a socket file descriptor
 	server_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
