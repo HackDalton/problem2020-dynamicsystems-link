@@ -43,7 +43,7 @@ Please remember that this document and your link client, like all \companyName{}
 \chapter{Protocol details}
 \section{Messages}
 Once you open a connection, you then exchange \emph{messages} with the server.
-Messages have the following structure. All sizes are measured in bytes. See chapter 3 for example messages.
+Messages have the following structure. All sizes are measured in bytes.
 \begin{center}
 \begin{tabular}{ l c c m{10 cm} }
 	Name & Position & Size & Description \\
@@ -219,8 +219,5 @@ So that the server can verify that it decrypted a message correctly, you must ca
 We use the \emph{CRC-32} algorithm, which is commonly available as a built-in function of many programming languages.
 You'll want to use the \emph{IEEE polynomial}, which is most likely the default.
 When encrypting a message, you should calculate the CRC-32 of its plaintext, and then set the security checksum field, as described in section 2.1.
-
-\chapter{Examples}
-TODO
 
 \end{document}
